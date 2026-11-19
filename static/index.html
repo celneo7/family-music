@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Family Music</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- ============ Login / register ============ -->
+  <section id="auth-view" class="auth hidden">
+    <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+    <div class="auth-card">
+      <div class="logo big"><span class="logo-mark"></span>Family Music</div>
+      <p class="muted">Playlists for the whole family.</p>
+      <div class="seg">
+        <button type="button" data-mode="login" class="seg-btn active">Log in</button>
+        <button type="button" data-mode="register" class="seg-btn">Sign up</button>
+      </div>
+      <form id="auth-form">
+        <label>Username <input name="username" required minlength="2" maxlength="30" autocomplete="username"></label>
+        <label>Password <input name="password" type="password" required minlength="6" autocomplete="current-password"></label>
+        <label id="invite-field" class="hidden">Family invite code <input name="invite_code"></label>
+        <p id="auth-error" class="error"></p>
+        <button type="submit" class="btn primary wide" id="auth-submit">Log in</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ Main app ============ -->
+  <section id="app-view" class="layout hidden">
+    <aside class="sidebar">
+      <div class="logo"><span class="logo-mark"></span>Family Music</div>
+      <nav>
+        <button type="button" class="nav-item" data-nav="home"><span data-icon="home"></span>Home</button>
+        <button type="button" class="nav-item" data-nav="search"><span data-icon="search"></span>Search</button>
+      </nav>
+      <div class="side-section">
+        <div class="side-head">
+          <span>Your playlists</span>
+          <button type="button" class="icon-btn sm" id="side-new" title="New playlist"><span data-icon="plus"></span></button>
+        </div>
+        <ul id="my-playlists" class="pl-list"></ul>
+      </div>
+      <div class="side-section">
+        <div class="side-head"><span>From the family</span></div>
+        <ul id="family-playlists" class="pl-list"></ul>
+      </div>
+      <div class="side-user">
+        <div class="avatar" id="avatar"></div>
+        <span id="whoami"></span>
+        <button type="button" id="logout" class="icon-btn sm" title="Log out"><span data-icon="logout"></span></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <form id="top-search" class="top-search">
+          <span data-icon="search"></span>
+          <input name="q" placeholder="Search songs, artists, albums" maxlength="100" autocomplete="off">
+        </form>
+      </header>
+      <div id="view" class="view"></div>
+    </main>
+  </section>
+
+  <!-- ============ Player ============ -->
+  <footer id="player" class="player hidden">
+    <input type="range" id="seek" class="seek" min="0" max="30" step="0.1" value="0" aria-label="Seek">
+    <div class="player-inner">
+      <div class="p-left">
+        <button type="button" class="icon-btn" id="p-prev" title="Previous"><span data-icon="prev"></span></button>
+        <button type="button" class="play-btn" id="p-play" title="Play/Pause"><span data-icon="play"></span></button>
+        <button type="button" class="icon-btn" id="p-next" title="Next"><span data-icon="next"></span></button>
+        <span class="time" id="p-time">0:00 / 0:30</span>
+      </div>
+      <div class="p-mid">
+        <img id="np-art" alt="">
+        <div class="np-text">
+          <div id="np-title" class="np-title"></div>
+          <div id="np-artist" class="muted small"></div>
+        </div>
+      </div>
+      <div class="p-right">
+        <span data-icon="volume" class="muted"></span>
+        <input type="range" id="volume" class="vol" min="0" max="1" step="0.01" value="0.8" aria-label="Volume">
+        <a id="np-apple" target="_blank" rel="noopener" class="apple-link">Listen on Apple Music <span data-icon="external"></span></a>
+      </div>
+    </div>
+    <audio id="audio" preload="auto"></audio>
+  </footer>
+
+  <!-- ============ Playlist dialog (create / rename) ============ -->
+  <dialog id="pl-dialog">
+    <form id="pl-form" method="dialog">
+      <h3 id="pl-dialog-title">New playlist</h3>
+      <label>Name <input name="name" required maxlength="100" autocomplete="off"></label>
+      <div class="vis-pick">
+        <label><input type="radio" name="visibility" value="private" checked>
+          <span><b>🔒 Private</b><small>Only you can see it</small></span></label>
+        <label><input type="radio" name="visibility" value="public">
+          <span><b>🌐 Public</b><small>The whole family can see it</small></span></label>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" id="pl-cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="menu" class="menu hidden"></div>
+  <div id="toast" class="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
