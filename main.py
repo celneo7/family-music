@@ -2,20 +2,23 @@
 
 Run:  uvicorn main:app --reload   then open http://localhost:8000
 """
+import asyncio
 import sqlite3
-from contextlib import asynccontextmanager
+import time
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import auth
 import itunes
-from db import get_db, init_db
+from db import connect, get_db, init_db
+from rooms import Room, rooms
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -278,3 +281,103 @@ def remove_song(
     )
     if cur.rowcount == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Song not in this playlist")
+
+
+# ---------- listen together ----------
+
+@app.get("/rooms")
+def list_rooms(user=Depends(auth.current_user)):
+    """Active listening parties this user is allowed to join."""
+    return [r.summary() for r in rooms.values() if r.visible_to(user["id"]) and r.members]
+
+
+@app.websocket("/ws/rooms/{playlist_id}")
+async def room_socket(ws: WebSocket, playlist_id: int):
+    """Join (or start) the listening party for a playlist.
+
+    First client message must be {"token": "<jwt>"}. After that clients send
+    {"type": "play" | "pause" | "next" | "prev" | "seek" | "jump" | "ended" | "ping", ...}
+    and every member receives the new shared state.
+    """
+    await ws.accept()
+    try:
+        hello = await asyncio.wait_for(ws.receive_json(), timeout=10)
+    except Exception:
+        await ws.close(code=4401)
+        return
+
+    with closing(connect()) as db:
+        user = auth.user_from_token(hello.get("token", ""), db)
+        if user is None:
+            await ws.close(code=4401, reason="Please log in")
+            return
+        pl = db.execute(
+            "SELECT p.*, u.username AS owner FROM playlists p JOIN users u ON u.id = p.owner_id WHERE p.id = ?",
+            (playlist_id,),
+        ).fetchone()
+        if pl is None or (pl["visibility"] == "private" and pl["owner_id"] != user["id"]):
+            await ws.close(code=4404, reason="Playlist not found")
+            return
+        songs = [
+            dict(s) for s in db.execute(
+                """SELECT s.* FROM playlist_songs ps JOIN songs s ON s.id = ps.song_id
+                   WHERE ps.playlist_id = ? AND s.preview_url IS NOT NULL ORDER BY ps.position""",
+                (playlist_id,),
+            )
+        ]
+
+    room = rooms.get(playlist_id)
+    created = room is None
+    if created:
+        if not songs:
+            await ws.close(code=4400, reason="This playlist has no playable songs")
+            return
+        room = rooms[playlist_id] = Room(
+            playlist_id=playlist_id, name=pl["name"], visibility=pl["visibility"],
+            owner_id=pl["owner_id"], started_by=user["username"], songs=songs,
+        )
+
+    room.members[ws] = user["username"]
+    await ws.send_json({"type": "hello", "name": room.name, "songs": room.songs, "created": created,
+                        "server_time": time.time()})
+    await room.broadcast(room.state(action="join", by=user["username"]))
+
+    try:
+        while True:
+            msg = await ws.receive_json()
+            kind = msg.get("type")
+            if kind == "ping":
+                await ws.send_json({"type": "pong", "t": msg.get("t"), "server": time.time()})
+                continue
+            if kind == "play":
+                room.update(playing=True)
+            elif kind == "pause":
+                room.update(playing=False)
+            elif kind == "seek":
+                room.update(position=float(msg.get("position", 0)))
+            elif kind == "jump":
+                i = int(msg.get("index", -1))
+                if not 0 <= i < len(room.songs):
+                    continue
+                room.update(index=i, position=0.0, playing=True)
+            elif kind == "next":
+                room.next()
+            elif kind == "prev":
+                room.prev()
+            elif kind == "ended":
+                # every client reports the end; only the first report for this song counts
+                if msg.get("index") != room.index:
+                    continue
+                room.next()
+                kind = "auto"
+            else:
+                continue
+            await room.broadcast(room.state(action=kind, by=user["username"]))
+    except (WebSocketDisconnect, RuntimeError, ValueError, TypeError):
+        pass
+    finally:
+        room.members.pop(ws, None)
+        if not room.members:
+            rooms.pop(playlist_id, None)
+        else:
+            await room.broadcast(room.state(action="leave", by=user["username"]))

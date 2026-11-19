@@ -334,6 +334,42 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in sr
 .apple-link:hover { color: var(--text); border-color: var(--muted); }
 .apple-link svg { width: 13px; height: 13px; }
 
+/* ================= listen together ================= */
+.live-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: live 1.6s ease-out infinite;
+}
+@keyframes live { to { box-shadow: 0 0 0 8px transparent; } }
+.room-pill {
+  position: absolute; right: 20px; bottom: calc(100% + 12px);
+  display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  padding: 6px 6px 6px 14px; border-radius: 999px; font-size: .82rem; font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: var(--shadow); animation: fade .2s ease;
+}
+.avatars { display: flex; }
+.avatars .avatar { width: 22px; height: 22px; font-size: .68rem; border: 2px solid var(--panel); margin-left: -6px; }
+.avatars .avatar:first-child { margin-left: 0; }
+.room-leave { font-size: .75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--hover); }
+.room-leave:hover { color: var(--accent); }
+.btn.together.active { border-color: var(--accent); color: var(--accent); }
+
+.live-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 14px; }
+.live-card .label { white-space: nowrap; }
+.live-card {
+  display: flex; align-items: center; gap: 14px; padding: 12px; border-radius: var(--radius);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--bg-2)), var(--bg-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.live-card img, .live-card .cover { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; flex: none; }
+.live-card .info { flex: 1; min-width: 0; }
+.live-card .label { display: flex; align-items: center; gap: 6px; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.live-card .title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.live-card .sub { color: var(--muted); font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.section-title.live { display: flex; align-items: center; gap: 10px; }
+
 /* ================= dialog / menu / toast ================= */
 dialog {
   border: 1px solid var(--line); border-radius: 18px; padding: 26px; width: min(420px, calc(100vw - 32px));

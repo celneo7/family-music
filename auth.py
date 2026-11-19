@@ -49,19 +49,20 @@ def create_token(user_id: int) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def user_from_token(token: str, db: sqlite3.Connection) -> sqlite3.Row | None:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload["sub"])
+    except (jwt.PyJWTError, KeyError, ValueError, TypeError):
+        return None
+    return db.execute("SELECT id, username FROM users WHERE id = ?", (user_id,)).fetchone()
+
+
 def current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: sqlite3.Connection = Depends(get_db),
 ) -> sqlite3.Row:
-    unauthorized = HTTPException(status.HTTP_401_UNAUTHORIZED, "Please log in")
-    if creds is None:
-        raise unauthorized
-    try:
-        payload = jwt.decode(creds.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = int(payload["sub"])
-    except (jwt.PyJWTError, KeyError, ValueError):
-        raise unauthorized
-    user = db.execute("SELECT id, username FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = user_from_token(creds.credentials, db) if creds else None
     if user is None:
-        raise unauthorized
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please log in")
     return user

@@ -10,6 +10,8 @@ const state = {
   route: { name: "home" },
   queue: [],       // songs in play order
   qIndex: -1,      // index of current song in queue
+  room: null,      // active listening party, see "listen together" below
+  clockOffset: 0,  // server clock minus our clock, in seconds
 };
 
 // ---------- icons ----------
@@ -33,6 +35,7 @@ const ICON_PATHS = {
   shuffle: "M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z",
   edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
   trash: "M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+  headphones: "M12 3a9 9 0 0 0-9 9v7a2 2 0 0 0 2 2h3v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h3a2 2 0 0 0 2-2v-7a9 9 0 0 0-9-9z",
 };
 const icon = (name) =>
   `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${ICON_PATHS[name]}"/></svg>`;
@@ -150,6 +153,7 @@ $("#auth-form").addEventListener("submit", async (e) => {
 });
 
 function logout() {
+  leaveRoom({ quiet: true });
   state.token = null;
   localStorage.removeItem("token");
   localStorage.removeItem("username");
@@ -336,11 +340,33 @@ function playlistCard(p) {
     </div>`;
 }
 
-function renderHome() {
+function liveCard(r) {
+  const n = r.listeners.length;
+  const inThis = state.room && state.room.id === r.playlist_id;
+  return `
+    <div class="live-card" data-room="${r.playlist_id}">
+      ${r.now_playing.artwork_url ? `<img src="${esc(r.now_playing.artwork_url)}" alt="">` : coverHtml([], r.playlist_id)}
+      <div class="info">
+        <div class="label"><span class="live-dot"></span>Live · ${n} listening</div>
+        <div class="title">${esc(r.name)}</div>
+        <div class="sub">${esc(r.now_playing.title)} · ${esc(r.now_playing.artist)}</div>
+        <div class="sub">with ${r.listeners.map(esc).join(", ")}</div>
+      </div>
+      <button type="button" class="btn ${inThis ? "" : "primary"}" data-join="${r.playlist_id}">${inThis ? "Joined" : "Join"}</button>
+    </div>`;
+}
+
+async function renderHome() {
   const fam = familyPlaylists();
+  const live = await api("/rooms").catch(() => []);
+  if (state.route.name !== "home") return;
   $("#view").innerHTML = `
     <div class="greet">${greeting()}, ${esc(state.username)}</div>
     <div class="muted">Here's what the family is listening to.</div>
+
+    ${live.length ? `
+      <div class="section-title live"><span class="live-dot"></span>Listening now</div>
+      <div class="live-grid">${live.map(liveCard).join("")}</div>` : ""}
 
     <div class="section-title">Your playlists</div>
     <div class="grid">
@@ -358,6 +384,13 @@ function renderHome() {
 
   $("#card-new").addEventListener("click", () => createPlaylist());
   $("#view").onclick = async (e) => {
+    const joinBtn = e.target.closest("[data-join]");
+    if (joinBtn) {
+      joinRoom(Number(joinBtn.dataset.join));
+      joinBtn.textContent = "Joined";
+      joinBtn.classList.remove("primary");
+      return;
+    }
     const playBtn = e.target.closest("[data-play]");
     if (playBtn) {
       e.stopPropagation();
@@ -419,6 +452,11 @@ async function renderPlaylist(id) {
 
   const covers = pl.songs.map((s) => s.artwork_url).filter(Boolean).slice(0, 4);
   const playable = pl.songs.filter((s) => s.preview_url).length;
+  const canParty = pl.visibility === "public" && playable > 0;
+  const live = canParty ? (await api("/rooms").catch(() => [])).find((r) => r.playlist_id === id) : null;
+  if (state.route.name !== "playlist" || state.route.id !== id) return;
+  const partyIdle = live ? ` Join party · ${live.listeners.length} listening` : " Listen together";
+  const inRoom = () => state.room && state.room.id === id;
 
   $("#view").innerHTML = `
     <section class="hero">
@@ -438,6 +476,8 @@ async function renderPlaylist(id) {
     <div class="actions-bar">
       <button type="button" class="play-btn" id="play-all" title="Play" ${playable ? "" : "disabled"}>${icon("play")}</button>
       <button type="button" class="icon-btn" id="shuffle" title="Shuffle" ${playable ? "" : "disabled"}>${icon("shuffle")}</button>
+      ${canParty ? `<button type="button" class="btn together" id="together" data-idle="${esc(partyIdle)}"
+          title="Everyone in the party hears the same song at the same time">${icon("headphones")}${esc(partyIdle)}</button>` : ""}
       ${pl.is_mine ? `
         <button type="button" class="btn" id="toggle-vis">${icon(pl.visibility === "public" ? "lock" : "globe")}
           Make ${pl.visibility === "public" ? "private" : "public"}</button>
@@ -448,17 +488,26 @@ async function renderPlaylist(id) {
       pl.is_mine ? `<button type="button" class="icon-btn sm" data-act="remove" title="Remove from playlist">${icon("close")}</button>` : "")).join("")}</ul>`
       : `<div class="empty-note">${pl.is_mine ? "This playlist is empty. Use the search bar above to find songs and hit “Add”." : "No songs here yet."}</div>`}`;
 
-  $("#play-all").addEventListener("click", () => playSongs(pl.songs, 0));
+  $("#play-all").addEventListener("click", () =>
+    inRoom() ? roomSend({ type: "jump", index: 0 }) : playSongs(pl.songs, 0));
   $("#shuffle").addEventListener("click", () => {
     const s = [...pl.songs].sort(() => Math.random() - 0.5);
     playSongs(s, 0);
   });
+  $("#together")?.addEventListener("click", () => (inRoom() ? leaveRoom() : joinRoom(id)));
+  renderRoomUI();
 
   $(".tracks")?.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-act]");
     if (!btn) return;
     const idx = Number(btn.closest(".track").dataset.idx);
-    if (btn.dataset.act === "play") return playSongs(pl.songs, idx);
+    if (btn.dataset.act === "play") {
+      if (inRoom()) {
+        const ri = state.room.songs.findIndex((s) => s.itunes_id === pl.songs[idx].itunes_id);
+        if (ri >= 0) return roomSend({ type: "jump", index: ri });
+      }
+      return playSongs(pl.songs, idx);
+    }
     if (btn.dataset.act === "remove") {
       try {
         await api(`/playlists/${id}/songs/${pl.songs[idx].id}`, { method: "DELETE" });
@@ -515,10 +564,21 @@ const seek = $("#seek");
 audio.volume = Number(localStorage.getItem("volume") ?? 0.8);
 $("#volume").value = audio.volume;
 
-const currentSong = () => state.queue[state.qIndex];
+const currentSong = () =>
+  state.room ? state.room.songs[state.room.index] : state.queue[state.qIndex];
 const isCurrent = (song) => currentSong() && currentSong().itunes_id === song.itunes_id;
 
+function showNowPlaying(song) {
+  $("#player").classList.remove("hidden");
+  $("#app-view").classList.add("playing");
+  $("#np-art").src = song.artwork_url || "";
+  $("#np-title").textContent = song.title;
+  $("#np-artist").textContent = song.artist;
+  $("#np-apple").href = song.track_url || "https://music.apple.com";
+}
+
 function playSongs(songs, startIdx = 0) {
+  if (state.room) leaveRoom({ quiet: false });
   const start = songs[startIdx];
   state.queue = songs.filter((s) => s.preview_url);
   if (!state.queue.length) { toast("No previews available"); return; }
@@ -529,12 +589,7 @@ function playSongs(songs, startIdx = 0) {
 function loadCurrent() {
   const song = currentSong();
   if (!song) return;
-  $("#player").classList.remove("hidden");
-  $("#app-view").classList.add("playing");
-  $("#np-art").src = song.artwork_url || "";
-  $("#np-title").textContent = song.title;
-  $("#np-artist").textContent = song.artist;
-  $("#np-apple").href = song.track_url || "https://music.apple.com";
+  showNowPlaying(song);
   audio.src = song.preview_url;
   audio.play().catch(() => {});
   markPlayingRows();
@@ -556,10 +611,16 @@ function step(dir) {
   loadCurrent();
 }
 
-$("#p-play").addEventListener("click", () => (audio.paused ? audio.play() : audio.pause()));
-$("#p-next").addEventListener("click", () => step(1));
-$("#p-prev").addEventListener("click", () => step(-1));
-audio.addEventListener("ended", () => step(1));
+// In a listening party, controls go to the server and everyone follows.
+function togglePlay() {
+  if (state.room) return roomSend({ type: state.room.playing ? "pause" : "play" });
+  audio.paused ? audio.play() : audio.pause();
+}
+$("#p-play").addEventListener("click", togglePlay);
+$("#p-next").addEventListener("click", () => (state.room ? roomSend({ type: "next" }) : step(1)));
+$("#p-prev").addEventListener("click", () => (state.room ? roomSend({ type: "prev" }) : step(-1)));
+audio.addEventListener("ended", () =>
+  state.room ? roomSend({ type: "ended", index: state.room.index }) : step(1));
 audio.addEventListener("play", () => { $("#p-play").innerHTML = icon("pause"); markPlayingRows(); });
 audio.addEventListener("pause", () => { $("#p-play").innerHTML = icon("play"); markPlayingRows(); });
 audio.addEventListener("loadedmetadata", () => { seek.max = audio.duration || 30; });
@@ -573,7 +634,11 @@ seek.addEventListener("input", () => {
   seek.dataset.dragging = "1";
   seek.style.setProperty("--pct", `${(seek.value / seek.max) * 100}%`);
 });
-seek.addEventListener("change", () => { audio.currentTime = Number(seek.value); delete seek.dataset.dragging; });
+seek.addEventListener("change", () => {
+  if (state.room) roomSend({ type: "seek", position: Number(seek.value) });
+  else audio.currentTime = Number(seek.value);
+  delete seek.dataset.dragging;
+});
 $("#volume").addEventListener("input", (e) => {
   audio.volume = Number(e.target.value);
   try { localStorage.setItem("volume", e.target.value); } catch {}
@@ -581,8 +646,134 @@ $("#volume").addEventListener("input", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.code !== "Space" || e.target.closest("input, textarea, button, dialog") || !currentSong()) return;
   e.preventDefault();
-  audio.paused ? audio.play() : audio.pause();
+  togglePlay();
 });
+
+// ---------- listen together ----------
+//
+// The server owns the room state: song index, playing/paused, and `position`
+// seconds at server time `server_time`. We line our <audio> up with it, and
+// re-check every 2s so everyone stays within a few hundred ms of each other.
+
+const serverNow = () => Date.now() / 1000 + state.clockOffset;
+
+function joinRoom(playlistId) {
+  if (state.room) {
+    if (state.room.id === playlistId) return;
+    leaveRoom({ quiet: true });
+  }
+  audio.pause();
+  state.queue = [];
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/rooms/${playlistId}`);
+  const room = { id: playlistId, ws, songs: [], index: 0, playing: false, position: 0,
+                 server_time: 0, listeners: [], name: "", bestRtt: Infinity };
+  state.room = room;
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ token: state.token }));
+    // a few pings to estimate the clock difference with the server
+    for (let i = 0; i < 5; i++) setTimeout(() => roomSend({ type: "ping", t: Date.now() / 1000 }), i * 150);
+  };
+  ws.onmessage = (e) => {
+    if (state.room !== room) return;
+    const msg = JSON.parse(e.data);
+    if (msg.type === "hello") {
+      room.songs = msg.songs;
+      room.name = msg.name;
+      state.clockOffset = msg.server_time - Date.now() / 1000;
+      toast(msg.created ? `Started a listening party for ${msg.name}` : `Joined ${msg.name}`);
+      if (msg.created) roomSend({ type: "play" });
+    } else if (msg.type === "pong") {
+      const now = Date.now() / 1000;
+      const rtt = now - msg.t;
+      if (rtt < room.bestRtt) { room.bestRtt = rtt; state.clockOffset = msg.server - (msg.t + now) / 2; }
+    } else if (msg.type === "state") {
+      applyRoomState(msg);
+    }
+  };
+  ws.onclose = (e) => {
+    if (state.room !== room) return; // we left on purpose
+    state.room = null;
+    audio.pause();
+    renderRoomUI();
+    toast(e.reason || "Listening party ended");
+  };
+}
+
+function leaveRoom({ quiet = false } = {}) {
+  const room = state.room;
+  if (!room) return;
+  state.room = null;
+  try { room.ws.close(); } catch {}
+  audio.pause();
+  renderRoomUI();
+  if (!quiet) toast("Left the listening party");
+}
+
+function roomSend(msg) {
+  const ws = state.room?.ws;
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+const ACTION_TEXT = {
+  play: "pressed play", pause: "paused", next: "skipped", prev: "went back",
+  seek: "moved to a new spot", jump: "picked a song", join: "joined", leave: "left",
+};
+
+function applyRoomState(s) {
+  const room = state.room;
+  const songChanged = s.index !== room.index || !audio.src.endsWith(room.songs[s.index]?.preview_url || "#");
+  Object.assign(room, s);
+  const song = room.songs[room.index];
+  if (!song) return;
+  showNowPlaying(song);
+  if (songChanged) audio.src = song.preview_url;
+  syncAudio();
+  markPlayingRows();
+  renderRoomUI();
+  // keep this party's "Listening now" card on Home up to date
+  const card = $(`.live-card[data-room="${room.id}"]`);
+  if (card) {
+    card.outerHTML = liveCard({
+      playlist_id: room.id, name: room.name, listeners: room.listeners,
+      now_playing: { title: song.title, artist: song.artist, artwork_url: song.artwork_url },
+    });
+  }
+  if (s.by && s.by !== state.username && ACTION_TEXT[s.action]) toast(`${s.by} ${ACTION_TEXT[s.action]}`);
+}
+
+function syncAudio() {
+  const room = state.room;
+  if (!room || !audio.src) return;
+  let target = room.position + (room.playing ? serverNow() - room.server_time : 0);
+  const dur = audio.duration || 30;
+  target = Math.min(Math.max(0, target), Math.max(0, dur - 0.05));
+  if (audio.readyState >= 1 && Math.abs(audio.currentTime - target) > 0.35) audio.currentTime = target;
+  if (room.playing && audio.paused) audio.play().catch(() => {});
+  if (!room.playing && !audio.paused) audio.pause();
+}
+audio.addEventListener("loadedmetadata", syncAudio);
+setInterval(() => { if (state.room?.playing) syncAudio(); }, 2000);
+
+function renderRoomUI() {
+  const room = state.room;
+  $("#room-pill").classList.toggle("hidden", !room);
+  if (room) {
+    const others = room.listeners.length - 1;
+    $("#room-label").textContent = others > 0 ? `Together · ${room.listeners.length}` : "Together · waiting for family";
+    $("#room-avatars").innerHTML = room.listeners.slice(0, 5)
+      .map((n) => `<span class="avatar" title="${esc(n)}">${esc(n[0].toUpperCase())}</span>`).join("");
+  }
+  // keep the playlist page's button in step
+  const btn = $("#together");
+  if (btn) {
+    const inThis = room && state.route.name === "playlist" && room.id === state.route.id;
+    btn.classList.toggle("active", !!inThis);
+    btn.lastChild.textContent = inThis ? " Leave party" : btn.dataset.idle;
+  }
+}
+$("#room-leave").addEventListener("click", () => leaveRoom());
 
 // ---------- start ----------
 

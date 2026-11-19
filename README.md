@@ -4,7 +4,16 @@ A small family playlist app. Search songs through the iTunes Search API, build p
 
 ![Family Music demo](demo/family-music-demo.gif)
 
-▶ [Full-quality demo video (MP4, 42s)](demo/family-music-demo.mp4)
+▶ [Full-quality demo video (MP4, 50s, includes Listen together)](demo/family-music-demo.mp4)
+
+## Listen together
+
+Open any **public** playlist and press **Listen together** to start a listening party. Family members see it under **Listening now** on Home and can join with one click.
+
+- Everyone in the party hears the same song at the same moment (kept within a fraction of a second).
+- Anyone can play, pause, skip or seek, and everyone follows ("minho skipped").
+- Parties live in memory over WebSockets: they end when the last person leaves or the server restarts.
+- Private playlists can't be used for parties, since only their owner can see them.
 
 ## Run it
 
@@ -37,6 +46,7 @@ $env:INVITE_CODE = "your-own-code"
 | `db.py` | SQLite tables (`users`, `songs`, `playlists`, `playlist_songs`) |
 | `auth.py` | Password hashing (bcrypt), JWT login tokens, current-user check |
 | `itunes.py` | iTunes Search API call |
+| `rooms.py` | Listen-together rooms: shared playback state per playlist |
 | `static/` | Frontend: `index.html`, `app.js`, `style.css` |
 | `family_music.db` | The database (created on first run) |
 | `.secret_key` | Random key used to sign login tokens (created on first run, keep private) |
