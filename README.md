@@ -2,6 +2,10 @@
 
 A small family playlist app. Search songs through the iTunes Search API, build playlists, mark them **public** (whole family sees them) or **private** (only you), and play 30-second previews.
 
+![Family Music demo](demo/family-music-demo.gif)
+
+▶ [Full-quality demo video (MP4, 42s)](demo/family-music-demo.mp4)
+
 ## Run it
 
 ```powershell
