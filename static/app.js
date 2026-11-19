@@ -142,6 +142,7 @@ $("#auth-form").addEventListener("submit", async (e) => {
     localStorage.setItem("token", data.token);
     localStorage.setItem("username", data.username);
     f.reset();
+    history.replaceState(null, "", "#/home"); // fresh login always starts at Home
     showApp();
   } catch (err) {
     $("#auth-error").textContent = err.message;
@@ -154,6 +155,8 @@ function logout() {
   localStorage.removeItem("username");
   audio.pause();
   state.queue = [];
+  history.replaceState(null, "", location.pathname); // don't leak the last page to the next user
+  $("#app-view").classList.remove("playing");
   $("#player").classList.add("hidden");
   $("#app-view").classList.add("hidden");
   $("#auth-view").classList.remove("hidden");
